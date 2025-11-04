@@ -25,7 +25,7 @@ async function startServer() {
     res.send('¡API de PetAgenda funcionando!');
   });
 
-  // Ruta de Login (Sin cambios)
+  // === RUTA DE LOGIN ===
   app.post('/api/login', async (req, res) => {
     const { email, password } = req.body;
     if (!email || !password) {
@@ -52,7 +52,7 @@ async function startServer() {
     }
   });
 
-  // Ruta para VER Clientes (Sin cambios)
+  // === RUTA PARA VER CLIENTES (Admin) ===
   app.get('/api/admin/clients', async (req, res) => {
     try {
       const users = await db.all("SELECT id, name, email, role FROM users WHERE role = 'user'");
@@ -63,11 +63,12 @@ async function startServer() {
       }));
       res.json(clientsWithPets);
     } catch (error) {
+      console.error('Error en GET /api/admin/clients:', error);
       res.status(500).json({ error: 'Error del servidor' });
     }
   });
 
-  // Ruta para CREAR Clientes (Sin cambios)
+  // === RUTA PARA CREAR CLIENTES (Admin) ===
   app.post('/api/admin/clients', async (req, res) => {
     const { name, email } = req.body;
     if (!name || !email) {
@@ -90,18 +91,12 @@ async function startServer() {
       );
       res.status(201).json({ ...newUser, pets: [] });
     } catch (error) {
+      console.error('Error en POST /api/admin/clients:', error);
       res.status(500).json({ error: 'Error del servidor al crear el cliente' });
     }
   });
 
-  // Rutas de Mascotas, Citas, etc. (Sin cambios)
-  app.get('/api/admin/pets/:id', async (req, res) => { /* ... (código existente) ... */ });
-  app.post('/api/admin/pets', async (req, res) => { /* ... (código existente) ... */ });
-  app.post('/api/admin/appointments', async (req, res) => { /* ... (código existente) ... */ });
-  app.post('/api/admin/records', async (req, res) => { /* ... (código existente) ... */ });
-
-  
-  // --- RUTA PARA ELIMINAR (DELETE) ---
+  // === RUTA PARA ELIMINAR CLIENTE (Admin) ===
   app.delete('/api/admin/clients/:id', async (req, res) => {
     const { id } = req.params;
     try {
@@ -113,12 +108,12 @@ async function startServer() {
       res.status(200).json({ message: 'Cliente eliminado exitosamente' });
 
     } catch (error) {
-      console.error(error);
+      console.error('Error en DELETE /api/admin/clients/:id:', error);
       res.status(500).json({ error: 'Error del servidor al eliminar el cliente' });
     }
   });
 
-  // --- RUTA PARA EDITAR (PUT) ---
+  // === RUTA PARA EDITAR CLIENTE (Admin) ===
   app.put('/api/admin/clients/:id', async (req, res) => {
     const { id } = req.params;
     const { name, email } = req.body;
@@ -149,11 +144,92 @@ async function startServer() {
       res.status(200).json(updatedUser);
 
     } catch (error) {
-      console.error(error);
+      console.error('Error en PUT /api/admin/clients/:id:', error);
       res.status(500).json({ error: 'Error del servidor al actualizar el cliente' });
     }
   });
 
+  // === RUTA PARA CREAR MASCOTA (Admin) ===
+  app.post('/api/admin/pets', async (req, res) => {
+    const { name, species, breed, userId } = req.body;
+    if (!name || !userId) {
+      return res.status(400).json({ error: 'Nombre de la mascota y userId son requeridos' });
+    }
+    try {
+      const result = await db.run(
+        'INSERT INTO pets (userId, name, species, breed) VALUES (?, ?, ?, ?)',
+        userId, name, species || 'Desconocida', breed || ''
+      );
+      const newPet = await db.get('SELECT * FROM pets WHERE id = ?', result.lastID);
+      res.status(201).json(newPet);
+    } catch (error) {
+      console.error('Error en POST /api/admin/pets:', error);
+      res.status(500).json({ error: 'Error del servidor al crear la mascota' });
+    }
+  });
+
+  // === RUTA PARA VER DETALLE DE MASCOTA (Admin) ===
+  app.get('/api/admin/pets/:id', async (req, res) => {
+    const { id } = req.params;
+    try {
+      const pet = await db.get('SELECT * FROM pets WHERE id = ?', id);
+      if (!pet) {
+        return res.status(404).json({ error: 'Mascota no encontrada' });
+      }
+
+      const owner = await db.get('SELECT id, name, email FROM users WHERE id = ?', pet.userId);
+      const appointments = await db.all('SELECT * FROM appointments WHERE petId = ?', id);
+      const records = await db.all('SELECT * FROM medical_records WHERE petId = ?', id);
+
+      res.json({
+        pet,
+        owner: owner || { name: 'Desconocido', email: '' },
+        appointments: appointments || [],
+        records: records || []
+      });
+    } catch (error) {
+      console.error('Error en GET /api/admin/pets/:id:', error);
+      res.status(500).json({ error: 'Error del servidor' });
+    }
+  });
+
+  // === RUTA PARA CREAR CITA (Admin) ===
+  app.post('/api/admin/appointments', async (req, res) => {
+    const { petId, date, reason } = req.body;
+    if (!petId || !date || !reason) {
+      return res.status(400).json({ error: 'petId, date y reason son requeridos' });
+    }
+    try {
+      const result = await db.run(
+        'INSERT INTO appointments (petId, date, reason, status) VALUES (?, ?, ?, ?)',
+        petId, date, reason, 'Pendiente'
+      );
+      const newAppointment = await db.get('SELECT * FROM appointments WHERE id = ?', result.lastID);
+      res.status(201).json(newAppointment);
+    } catch (error) {
+      console.error('Error en POST /api/admin/appointments:', error);
+      res.status(500).json({ error: 'Error del servidor al crear la cita' });
+    }
+  });
+
+  // === RUTA PARA CREAR REGISTRO MÉDICO (Admin) ===
+  app.post('/api/admin/records', async (req, res) => {
+    const { petId, type, name, date } = req.body;
+    if (!petId || !type || !name || !date) {
+      return res.status(400).json({ error: 'petId, type, name y date son requeridos' });
+    }
+    try {
+      const result = await db.run(
+        'INSERT INTO medical_records (petId, type, name, date) VALUES (?, ?, ?, ?)',
+        petId, type, name, date
+      );
+      const newRecord = await db.get('SELECT * FROM medical_records WHERE id = ?', result.lastID);
+      res.status(201).json(newRecord);
+    } catch (error) {
+      console.error('Error en POST /api/admin/records:', error);
+      res.status(500).json({ error: 'Error del servidor al crear el registro' });
+    }
+  });
 
   // --- Iniciar el servidor ---
   app.listen(port, () => {
